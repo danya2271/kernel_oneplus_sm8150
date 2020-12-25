@@ -216,7 +216,7 @@ static inline int audit_update_lsm_rules(void)
 {
 	return 0;
 }
-#define audit_enabled 0
+#define audit_enabled AUDIT_OFF
 #endif /* CONFIG_AUDIT */
 
 #ifdef CONFIG_AUDIT_COMPAT_GENERIC

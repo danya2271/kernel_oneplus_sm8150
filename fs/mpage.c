@@ -278,11 +278,6 @@ do_mpage_readpage(struct bio *bio, struct page *page, unsigned nr_pages,
 
 alloc_new:
 	if (bio == NULL) {
-		if (first_hole == blocks_per_page) {
-			if (!bdev_read_page(bdev, blocks[0] << (blkbits - 9),
-								page))
-				goto out;
-		}
 		bio = mpage_alloc(bdev, blocks[0] << (blkbits - 9),
 				min_t(int, nr_pages, BIO_MAX_PAGES), gfp);
 		if (bio == NULL)
@@ -614,11 +609,6 @@ page_is_mapped:
 
 alloc_new:
 	if (bio == NULL) {
-		if (first_unmapped == blocks_per_page) {
-			if (!bdev_write_page(bdev, blocks[0] << (blkbits - 9),
-								page, wbc))
-				goto out;
-		}
 		bio = mpage_alloc(bdev, blocks[0] << (blkbits - 9),
 				BIO_MAX_PAGES, GFP_NOFS|__GFP_HIGH);
 		if (bio == NULL)

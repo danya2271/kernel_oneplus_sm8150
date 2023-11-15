@@ -98,6 +98,7 @@
 #include <linux/devfreq_boost.h>
 #include <linux/cpu_input_boost.h>
 #include <linux/event_tracking.h>
+#include <linux/irq.h>
 
 #include <asm/pgtable.h>
 #include <asm/pgalloc.h>
@@ -2250,6 +2251,7 @@ long _do_fork(unsigned long clone_flags,
         	        devfreq_boost_kick_max(DEVFREQ_MSM_CPUBW, 500);
                 	devfreq_boost_kick_max(DEVFREQ_MSM_LLCCBW, 500);
 		}
+		balance_irqs();
 	}
 
 	/*

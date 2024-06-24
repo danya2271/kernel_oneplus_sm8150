@@ -309,6 +309,27 @@ static unsigned int get_next_freq(struct sugov_policy *sg_policy,
 	return l_freq;
 }
 
+static inline unsigned long apply_dvfs_headroom(unsigned long util, int cpu)
+{
+	unsigned int sched_dvfs_headroom[8] = { [0 ... 7] = 1280 };
+	unsigned long capacity = capacity_orig_of(cpu);
+	unsigned long headroom;
+
+	if (util >= capacity)
+		return util;
+
+	/*
+	 * Taper the boosting at the top end as these are expensive and
+	 * we don't need that much of a big headroom as we approach max
+	 * capacity
+	 */
+	headroom = (capacity - util);
+	/* formula: headroom * (1.X - 1) == headroom * 0.X */
+	headroom = headroom *
+	(sched_dvfs_headroom[cpu] - SCHED_CAPACITY_SCALE) >> SCHED_CAPACITY_SHIFT;
+	return util + headroom;
+}
+
 static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
@@ -326,6 +347,7 @@ static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu)
 #ifdef CONFIG_UCLAMP_TASK
 	*util = uclamp_util_with(rq, *util, NULL);
 #endif
+	*util = apply_dvfs_headroom(*util, cpu);
 }
 
 static void sugov_set_iowait_boost(struct sugov_cpu *sg_cpu, u64 time,

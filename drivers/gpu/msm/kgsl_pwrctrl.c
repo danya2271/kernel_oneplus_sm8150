@@ -1073,6 +1073,7 @@ static ssize_t kgsl_pwrctrl_gpu_clock_stats_show(
 					struct device_attribute *attr,
 					char *buf)
 {
+#ifdef CONFIG_KGSL_SHOW_GPUSTATS
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
 	int index, num_chars = 0;
@@ -1102,6 +1103,9 @@ static ssize_t kgsl_pwrctrl_gpu_clock_stats_show(
         buf[num_chars++] = '\n';
 
     return num_chars;
+#else
+	return 0;
+#endif
 }
 
 static ssize_t kgsl_pwrctrl_reset_count_show(struct device *dev,

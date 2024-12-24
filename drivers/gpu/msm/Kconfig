@@ -15,6 +15,12 @@ config QCOM_KGSL
 	  on QTI targets. This includes power management, memory management,
 	  and scheduling for the Adreno GPUs.
 
+config KGSL_SHOW_GPUSTATS
+	bool "KGSL gpustats"
+	depends on QCOM_KGSL
+	help
+	  Shows each gpu level stats (like time in level, percent of this level)
+
 config QCOM_ADRENO_DEFAULT_GOVERNOR
 	string "devfreq governor for the adreno core"
 	default "msm-adreno-tz" if DEVFREQ_GOV_QCOM_ADRENO_TZ

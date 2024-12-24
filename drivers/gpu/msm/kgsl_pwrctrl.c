@@ -1076,21 +1076,32 @@ static ssize_t kgsl_pwrctrl_gpu_clock_stats_show(
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
 	int index, num_chars = 0;
+    unsigned long long total_time = 0;
 
-	if (device == NULL)
-		return 0;
-	pwr = &device->pwrctrl;
-	mutex_lock(&device->mutex);
-	kgsl_pwrscale_update_stats(device);
-	mutex_unlock(&device->mutex);
-	for (index = 0; index < pwr->num_pwrlevels - 1; index++)
-		num_chars += snprintf(buf + num_chars, PAGE_SIZE - num_chars,
-			"%llu ", pwr->clock_times[index]);
+    mutex_lock(&device->mutex);
+    kgsl_pwrscale_update_stats(device);
 
-	if (num_chars < PAGE_SIZE)
-		buf[num_chars++] = '\n';
+    // Calculate the total time spent across all power levels
+    for (index = 0; index < pwr->num_pwrlevels; index++) {
+        total_time += pwr->clock_times[index];
+    }
 
-	return num_chars;
+    mutex_unlock(&device->mutex);
+
+    // Calculate and print the percentage of usage for each clock frequency
+    for (index = 0; index < pwr->num_pwrlevels; index++) {
+        unsigned long long percent_usage = (total_time > 0) ?
+                                           (pwr->clock_times[index] * 100) / total_time :
+                                           0;
+        num_chars += scnprintf(buf + num_chars, PAGE_SIZE - num_chars,
+                               "Lvl: %d Usage: %llu%% Time: %llu us,\n",
+                               index, percent_usage, pwr->clock_times[index]);
+    }
+
+    if (num_chars < PAGE_SIZE)
+        buf[num_chars++] = '\n';
+
+    return num_chars;
 }
 
 static ssize_t kgsl_pwrctrl_reset_count_show(struct device *dev,

@@ -2105,6 +2105,7 @@ bad:
 		newc->str);
 	return 0;
 #else
+	context_destroy(newc);
 	return 0;
 #endif
 }

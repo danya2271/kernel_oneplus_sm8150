@@ -727,36 +727,64 @@ ifeq ($(cc-name),clang)
 KBUILD_CFLAGS   += -O3
 #Enable fast FMA optimizations
 KBUILD_CFLAGS   += -ffp-contract=fast
-#Enable MLGO for register allocation.
+#Enable MLGO
+ifeq ($(shell test $(CONFIG_CLANG_VERSION) -gt 180000; echo $$?),0)
 KBUILD_CFLAGS   += -mllvm -regalloc-enable-advisor=release
+KBUILD_CFLAGS   += -mllvm -enable-machine-outliner
+KBUILD_LDFLAGS  += -mllvm -regalloc-enable-advisor=release
+KBUILD_LDFLAGS  += -mllvm -enable-ml-inliner=release
+KBUILD_LDFLAGS  += -mllvm -enable-machine-outliner
+endif
 #Enable hot cold split optimization
 KBUILD_CFLAGS   += -mllvm -hot-cold-split=true
 KBUILD_CFLAGS	+= -march=armv8.2-a+lse+fp16+dotprod -mcpu=cortex-a76+crypto+crc
 ifdef CONFIG_LLVM_POLLY
 KBUILD_CFLAGS	+= -mllvm -polly \
-		   -mllvm -polly-parallel \
 		   -mllvm -polly-ast-use-context \
 		   -mllvm -polly-invariant-load-hoisting \
 		   -mllvm -polly-run-inliner \
-		   -mllvm -polly-loopfusion-greedy=1 \
-		   -mllvm -polly-reschedule=1 \
-		   -mllvm -polly-postopts=1 \
-		   -mllvm -polly-omp-backend=LLVM \
-		   -mllvm -polly-scheduling=dynamic \
-		   -mllvm -polly-scheduling-chunksize=1 \
-		   -mllvm -polly-vectorizer=stripmine
-# Polly may optimise loops with dead paths beyound what the linker
-# # can understand. This may negate the effect of the linker's DCE
-# # so we tell Polly to perfom proven DCE on the loops it optimises
-# # in order to preserve the overall effect of the linker's DCE.
+		   -mllvm -polly-vectorizer=stripmine \
+		   -mllvm -polly-parallel \
+       	   -mllvm -polly-parallel-force \
+		   -mllvm -polly-detect-track-failures=0 \
+		   -mllvm -polly-ignore-aliasing \
+		   -mllvm -polly-detect-keep-going
+
 ifdef CONFIG_LD_DEAD_CODE_DATA_ELIMINATION
 KBUILD_CFLAGS	+= -mllvm -polly-run-dce
 endif
+
+ifeq ($(shell test $(CONFIG_CLANG_VERSION) -gt 130000; echo $$?),0)
+KBUILD_CFLAGS	+= -mllvm -polly-loopfusion-greedy=1 \
+		   -mllvm -polly-reschedule=1 \
+		   -mllvm -polly-postopts=1 \
+		   -mllvm -polly-num-threads=0 \
+		   -mllvm -polly-omp-backend=LLVM \
+		   -mllvm -polly-scheduling=dynamic \
+		   -mllvm -polly-scheduling-chunksize=1
+else
+KBUILD_CFLAGS	+= -mllvm -polly-opt-fusion=max
+endif
 endif
 
-KBUILD_CFLAGS  += -mllvm -inline-threshold=1300
-KBUILD_CFLAGS  += -mllvm -inlinehint-threshold=2000
-KBUILD_CFLAGS  += -mllvm -unroll-threshold=900
+INLINE_FLAGS   := -mllvm -inline-threshold=1248 \
+		-mllvm -inlinehint-threshold=1035 \
+		-mllvm -inline-savings-multiplier=12 \
+		-mllvm -inline-cold-callsite-threshold=55 \
+		-mllvm -ignore-tti-inline-compatible \
+		-mllvm -inline-savings-profitable-multiplier=6 \
+		-mllvm -inline-size-allowance=30 \
+		-mllvm -inlinecold-threshold=130 \
+		-mllvm -locally-hot-callsite-threshold=750 \
+		-mllvm -inline-instr-cost=12 \
+		-mllvm -inline-call-penalty=5 \
+		-mllvm -hot-callsite-rel-freq=100 \
+		-mllvm -cold-callsite-rel-freq=5 \
+		-mllvm -inline-enable-cost-benefit-analysis
+
+KBUILD_CFLAGS += $(INLINE_FLAGS)
+KBUILD_AFLAGS += $(INLINE_FLAGS)
+KBUILD_LDFLAGS += $(INLINE_FLAGS)
 
 else
 KBUILD_CFLAGS   += -O2

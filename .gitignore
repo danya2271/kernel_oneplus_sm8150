@@ -11,10 +11,12 @@
 #
 .*
 *.a
+*.asn1.[ch]
 *.bin
 *.bz2
 *.c.[012]*.*
 *.dtb
+*.dtbo
 *.dtb.S
 *.dwo
 *.elf
@@ -22,6 +24,7 @@
 *.gz
 *.i
 *.ko
+*.lex.c
 *.ll
 *.lst
 *.lz4
@@ -31,11 +34,14 @@
 *.o
 *.o.*
 *.order
+*.patch
 *.s
 *.so
 *.so.dbg
 *.su
 *.symtypes
+*.symversions
+*.tab.[ch]
 *.tar
 *.xz
 Module.symvers
@@ -65,6 +71,11 @@ modules.builtin
 /debian/
 
 #
+# Snap directory (make snap-pkg)
+#
+/snap/
+
+#
 # tar directory (make tar*-pkg)
 #
 /tar-install/
@@ -75,12 +86,14 @@ modules.builtin
 !.gitignore
 !.mailmap
 !.cocciconfig
+!.clang-format
 
 #
 # Generated include files
 #
 include/config
 include/generated
+include/ksym
 arch/*/include/generated
 
 # stgit generated dirs
@@ -125,11 +138,19 @@ all.config
 # fetched Android config fragments
 kernel/configs/android-*.cfg
 
-#
-#Ignoring Android.bp link file
-#
-Android.bp
+# Tech package directories
+#techpack/
 
-*.sh
+# Documentation toolchain
+sphinx_*/
+# Scripts
+scripts/build_dtbo
+scripts/build_kernel
+scripts/update_defconfig
+
 out
-kernelzip/
+gcc-linaro-13.0.0-2022.10-x86_64_aarch64-linux-gnu
+clang
+out
+preparecompiler.sh
+clang.sh

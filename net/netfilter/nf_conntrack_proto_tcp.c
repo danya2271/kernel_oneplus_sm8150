@@ -807,16 +807,6 @@ static void nf_ct_tcp_state_reset(struct ip_ct_tcp_state *state)
 	state->flags		&= IP_CT_TCP_FLAG_BE_LIBERAL;
 }
 
-static void nf_ct_tcp_state_reset(struct ip_ct_tcp_state *state)
-{
-	state->td_end		= 0;
-	state->td_maxend	= 0;
-	state->td_maxwin	= 0;
-	state->td_maxack	= 0;
-	state->td_scale		= 0;
-	state->flags		&= IP_CT_TCP_FLAG_BE_LIBERAL;
-}
-
 /* Returns verdict for packet, or -1 for invalid. */
 static int tcp_packet(struct nf_conn *ct,
 		      const struct sk_buff *skb,

@@ -142,8 +142,8 @@ struct dma_pool *dma_pool_create(const char *name, struct device *dev,
 
 	if (size == 0)
 		return NULL;
-	else if (size < 4)
-		size = 4;
+	if (size < sizeof(struct dma_block))
+		size = sizeof(struct dma_block);
 
 	if ((size % align) != 0)
 		size = ALIGN(size, align);

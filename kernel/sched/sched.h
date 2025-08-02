@@ -2839,6 +2839,7 @@ extern int kp_active_mode(void);
 #ifdef CONFIG_UCLAMP_TASK_GROUP
 static inline bool uclamp_latency_sensitive(struct task_struct *p)
 {
+#ifdef CONFIG_CPUSETS
 	struct cgroup_subsys_state *css = task_css(p, cpuset_cgrp_id);
 	struct task_group *tg;
 
@@ -2854,10 +2855,14 @@ static inline bool uclamp_latency_sensitive(struct task_struct *p)
 	tg = container_of(css, struct task_group, css);
 
 	return tg->latency_sensitive;
+#else
+	return 0;
+#endif
 }
 
 static inline bool uclamp_boosted(struct task_struct *p)
 {
+#ifdef CONFIG_CPUSETS
 	struct cgroup_subsys_state *css = task_css(p, cpuset_cgrp_id);
 	struct task_group *tg;
 
@@ -2873,6 +2878,9 @@ static inline bool uclamp_boosted(struct task_struct *p)
 	tg = container_of(css, struct task_group, css);
 
 	return tg->boosted;
+#else
+	return 0;
+#endif
 }
 #else
 static inline bool uclamp_latency_sensitive(struct task_struct *p)

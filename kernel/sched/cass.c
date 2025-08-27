@@ -25,17 +25,6 @@
  * satisfy the overall load at any given moment.
  */
 
-/*
- * Returns true if the task has a low priority (positive nice value).
- * This is a scheduler-safe way to identify tasks that are not critical
- * for UI performance on Android.
- */
-static __always_inline
-bool cass_is_low_priority_task(struct task_struct *p)
-{
-	return task_nice(p) > 0;
-}
-
 struct cass_cpu_cand {
 	int cpu;
 	unsigned int exit_lat;
@@ -95,17 +84,17 @@ bool cass_prime_cpu(const struct cass_cpu_cand *c)
 	 * the same original capacity as the prior CPU, then it is prime.
 	 */
 	return c->cpu == nr_cpu_ids - 1 &&
-	arch_scale_cpu_capacity(nr_cpu_ids - 2) != SCHED_CAPACITY_SCALE;
+	       arch_scale_cpu_capacity(nr_cpu_ids - 2) != SCHED_CAPACITY_SCALE;
 }
 
 /* Returns true if @a is a better CPU than @b */
 static __always_inline
 bool cass_cpu_better(const struct cass_cpu_cand *a,
-					 const struct cass_cpu_cand *b, struct task_struct *p,
-					 unsigned long p_util, int this_cpu, int prev_cpu, bool sync)
+		     const struct cass_cpu_cand *b, unsigned long p_util,
+		     int this_cpu, int prev_cpu, bool sync)
 {
-	#define cass_cmp(a, b) ({ res = (a) - (b); })
-	#define cass_eq(a, b) ({ res = (a) == (b); })
+#define cass_cmp(a, b) ({ res = (a) - (b); })
+#define cass_eq(a, b) ({ res = (a) == (b); })
 	long res;
 
 	/* Prefer the CPU that's not overloaded */
@@ -114,13 +103,13 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 
 	/* Prefer the CPU that's less overloaded if they're both overloaded */
 	if (b->eff_util > b->cap_max && a->eff_util > a->cap_max &&
-		cass_cmp(b->eff_util * SCHED_CAPACITY_SCALE / b->cap_max,
-				 a->eff_util * SCHED_CAPACITY_SCALE / a->cap_max))
+	    cass_cmp(b->eff_util * SCHED_CAPACITY_SCALE / b->cap_max,
+		     a->eff_util * SCHED_CAPACITY_SCALE / a->cap_max))
 		goto done;
 
 	/* Prefer the CPU that fits the task */
 	if (cass_cmp(fits_capacity(p_util, a->cap_max),
-		fits_capacity(p_util, b->cap_max)))
+		     fits_capacity(p_util, b->cap_max)))
 		goto done;
 
 	/* Prefer the CPU that isn't the single fastest one in the system */
@@ -139,13 +128,9 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 	if (sync && (cass_eq(a->cpu, this_cpu) || !cass_cmp(b->cpu, this_cpu)))
 		goto done;
 
-	/*
-	 * For low-priority tasks, prefer little cores.
-	 */
-	if (cass_is_low_priority_task(p)) {
-		if (cass_cmp(b->cap, a->cap)) /* Prefer lower capacity */
-			goto done;
-	}
+	/* Prefer the CPU with higher capacity */
+	if (cass_cmp(a->cap, b->cap))
+		goto done;
 
 	/* Prefer the CPU with lower idle exit latency */
 	if (cass_cmp(b->exit_lat, a->exit_lat))
@@ -157,11 +142,11 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 
 	/* Prefer the CPU that shares a cache with the previous CPU */
 	if (cass_cmp(cpus_share_cache(a->cpu, prev_cpu),
-		cpus_share_cache(b->cpu, prev_cpu)))
+		     cpus_share_cache(b->cpu, prev_cpu)))
 		goto done;
 
 	/* @a isn't a better CPU than @b. @res must be <=0 to indicate such. */
-	done:
+done:
 	/* @a is a better CPU than @b if @res is positive */
 	return res > 0;
 }
@@ -213,7 +198,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 */
 		curr->cpu = cpu;
 		if ((sync && cpu == this_cpu && rq->nr_running == 1) ||
-			available_idle_cpu(cpu) || sched_idle_cpu(cpu)) {
+		    available_idle_cpu(cpu) || sched_idle_cpu(cpu)) {
 			/*
 			 * A non-idle candidate may be better for energy
 			 * efficiency when @p is uclamp boosted above @curr's
@@ -222,39 +207,39 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 			 * candidates.
 			 */
 			if (!has_idle &&
-				uc_min <= arch_scale_min_freq_capacity(cpu) &&
-				!cass_prime_cpu(curr)) {
+			    uc_min <= arch_scale_min_freq_capacity(cpu) &&
+			    !cass_prime_cpu(curr)) {
 				/* Discard any previous non-idle candidate */
 				best = curr;
-			has_idle = true;
-				}
-
-				/* Nonzero exit latency indicates this CPU is idle */
-				curr->exit_lat = 1;
-
-				/* Add on the actual idle exit latency, if any */
-				idle_state = idle_get_state(rq);
-				if (idle_state)
-					curr->exit_lat += idle_state->exit_latency;
-			} else {
-				/* Skip non-idle CPUs if there's an idle candidate */
-				if (has_idle)
-					continue;
-
-				/* Zero exit latency indicates this CPU isn't idle */
-				curr->exit_lat = 0;
+				has_idle = true;
 			}
 
-			/* Get this CPU's capacity and utilization */
-			cass_cpu_util(curr, this_cpu, sync);
+			/* Nonzero exit latency indicates this CPU is idle */
+			curr->exit_lat = 1;
 
-			/*
-			 * Add @p's utilization to this CPU if it's not @p's CPU, to
-			 * find what this CPU's relative utilization would look like if
-			 * @p were on it.
-			 */
-			if (cpu != task_cpu(p))
-				curr->util += p_util;
+			/* Add on the actual idle exit latency, if any */
+			idle_state = idle_get_state(rq);
+			if (idle_state)
+				curr->exit_lat += idle_state->exit_latency;
+		} else {
+			/* Skip non-idle CPUs if there's an idle candidate */
+			if (has_idle)
+				continue;
+
+			/* Zero exit latency indicates this CPU isn't idle */
+			curr->exit_lat = 0;
+		}
+
+		/* Get this CPU's capacity and utilization */
+		cass_cpu_util(curr, this_cpu, sync);
+
+		/*
+		 * Add @p's utilization to this CPU if it's not @p's CPU, to
+		 * find what this CPU's relative utilization would look like if
+		 * @p were on it.
+		 */
+		if (cpu != task_cpu(p))
+			curr->util += p_util;
 
 		/*
 		 * Calculate the effective utilization for this CPU candidate;
@@ -283,7 +268,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 * disproportionate P-states.
 		 */
 		curr->util =
-		curr->util * SCHED_CAPACITY_SCALE / curr->cap;
+			curr->util * SCHED_CAPACITY_SCALE / curr->cap;
 
 		/*
 		 * Check if this CPU is better than the best CPU found so far.
@@ -291,18 +276,18 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 * cidx still needs to be changed to the other candidate slot.
 		 */
 		if (best == curr ||
-			cass_cpu_better(curr, best, p, p_util, this_cpu, prev_cpu,
-							sync)) {
+		    cass_cpu_better(curr, best, p_util, this_cpu, prev_cpu,
+				    sync)) {
 			best = curr;
-		cidx ^= 1;
-							}
+			cidx ^= 1;
+		}
 	}
 
 	return best->cpu;
 }
 
 static int cass_select_task_rq(struct task_struct *p, int prev_cpu,
-							   int wake_flags, bool rt)
+			       int wake_flags, bool rt)
 {
 	bool sync;
 
@@ -327,13 +312,13 @@ static int cass_select_task_rq(struct task_struct *p, int prev_cpu,
 }
 
 static int cass_select_task_rq_fair(struct task_struct *p, int prev_cpu,
-									int sd_flags, int wake_flags, int sibling_count)
+				    int sd_flags, int wake_flags, int sibling_count)
 {
 	return cass_select_task_rq(p, prev_cpu, wake_flags, false);
 }
 
 int cass_select_task_rq_rt(struct task_struct *p, int prev_cpu, int sd_flags,
-						   int wake_flags, int sibling_count)
+			   int wake_flags, int sibling_count)
 {
 	return cass_select_task_rq(p, prev_cpu, wake_flags, true);
 }

@@ -87,12 +87,7 @@ void cass_cpu_util(struct cass_cpu_cand *c, int this_cpu, bool sync)
 static __always_inline
 bool cass_prime_cpu(const struct cass_cpu_cand *c)
 {
-	/*
-	 * On arm64, the prime CPU is always the last CPU. If it doesn't have
-	 * the same original capacity as the prior CPU, then it is prime.
-	 */
-	return c->cpu == nr_cpu_ids - 1 &&
-	       arch_scale_cpu_capacity(nr_cpu_ids - 2) != SCHED_CAPACITY_SCALE;
+	return c->cpu >= 4;
 }
 
 /* Returns true if @a is a better CPU than @b */

@@ -29,6 +29,7 @@
 
 #include <linux/freezer.h>
 #include <linux/irq.h>
+#include <linux/interrupt.h>
 #include <linux/list_sort.h>
 #include "../sched/sched.h"
 #include "internals.h"
@@ -46,6 +47,21 @@
  */
 #define IRQ_SCALED_THRESH CONFIG_IRQ_SBALANCE_THRESH
 
+enum irq_type {
+	IRQ_TYPE_NORMAL,
+	IRQ_TYPE_CRITICAL,
+	IRQ_TYPE_PERFORMANCE,
+};
+
+static const char * const critical_performance_irqs[] = {
+	"msm_drm", "touchpanel", "dsi_ctrl", "display_rsc", "kgsl-3d0"
+};
+
+static const char * const performance_irqs[] = {
+	"1d84000.ufshc", "apps_rsc", "gsi", "i2c_geni", "msm_serial_geni0",
+	"glink-native-cdsp", "glink-native-adsp", "glink-native-slpi"
+};
+
 struct bal_irq {
 	struct list_head node;
 	struct list_head move_node;
@@ -54,6 +70,7 @@ struct bal_irq {
 	unsigned int delta_nr;
 	unsigned int old_nr;
 	int prev_cpu;
+	enum irq_type type;
 };
 
 struct bal_domain {
@@ -69,15 +86,31 @@ static DEFINE_PER_CPU(struct bal_domain, balance_data);
 static DEFINE_PER_CPU(unsigned long, cpu_cap);
 static cpumask_t cpu_exclude_mask __read_mostly;
 
+static enum irq_type get_irq_type(struct irq_desc *desc)
+{
+	const char *name;
+	int i;
+
+	if (!desc->action || !desc->action->name)
+		return IRQ_TYPE_NORMAL;
+	name = desc->action->name;
+
+	for (i = 0; i < ARRAY_SIZE(critical_performance_irqs); i++) {
+		if (strcmp(name, critical_performance_irqs[i]) == 0)
+			return IRQ_TYPE_CRITICAL;
+	}
+	for (i = 0; i < ARRAY_SIZE(performance_irqs); i++) {
+		if (strcmp(name, performance_irqs[i]) == 0)
+			return IRQ_TYPE_PERFORMANCE;
+	}
+	return IRQ_TYPE_NORMAL;
+}
+
 void sbalance_desc_add(struct irq_desc *desc)
 {
-	struct bal_irq *bi;
-
-	bi = kmalloc(sizeof(*bi), GFP_KERNEL);
-	if (WARN_ON(!bi))
-		return;
-
-	*bi = (typeof(*bi)){ .desc = desc };
+	struct bal_irq *bi = kmalloc(sizeof(*bi), GFP_KERNEL);
+	if (WARN_ON(!bi)) return;
+	*bi = (typeof(*bi)){ .desc = desc, .type = IRQ_TYPE_NORMAL };
 	spin_lock(&bal_irq_lock);
 	list_add_tail_rcu(&bi->node, &bal_irq_list);
 	spin_unlock(&bal_irq_lock);
@@ -86,7 +119,6 @@ void sbalance_desc_add(struct irq_desc *desc)
 void sbalance_desc_del(struct irq_desc *desc)
 {
 	struct bal_irq *bi;
-
 	spin_lock(&bal_irq_lock);
 	list_for_each_entry(bi, &bal_irq_list, node) {
 		if (bi->desc == desc) {
@@ -102,7 +134,6 @@ static int bal_irq_move_node_cmp(void *priv, struct list_head *lhs_p, struct lis
 {
 	const struct bal_irq *lhs = list_entry(lhs_p, typeof(*lhs), move_node);
 	const struct bal_irq *rhs = list_entry(rhs_p, typeof(*rhs), move_node);
-
 	return rhs->delta_nr - lhs->delta_nr;
 }
 
@@ -119,9 +150,8 @@ static bool update_irq_data(struct bal_irq *bi, int *cpu)
 	 * IRQ fired upon in order to determine its actual affinity.
 	 */
 	*cpu = READ_ONCE(desc->last_cpu);
-	if (*cpu >= nr_cpu_ids)
-		return false;
-
+	if (*cpu >= nr_cpu_ids) return false;
+	nr = *per_cpu_ptr(desc->kstat_irqs, *cpu);
 	/*
 	 * Calculate the number of new interrupts from this IRQ. It is assumed
 	 * that the IRQ has been running on the same CPU since the last
@@ -129,13 +159,10 @@ static bool update_irq_data(struct bal_irq *bi, int *cpu)
 	 * someone else since the last balancing run, or if the CPU this IRQ was
 	 * previously running on has since gone offline.
 	 */
-	nr = *per_cpu_ptr(desc->kstat_irqs, *cpu);
 	if (nr <= bi->old_nr) {
 		bi->old_nr = nr;
 		return false;
 	}
-
-	/* Calculate the number of new interrupts on this CPU from this IRQ */
 	bi->delta_nr = nr - bi->old_nr;
 	bi->old_nr = nr;
 	return true;
@@ -151,18 +178,17 @@ static int move_irq_to_cpu(struct bal_irq *bi, int cpu)
 	prev_cpu = cpumask_first(desc->irq_common_data.affinity);
 	if (prev_cpu == bi->prev_cpu) {
 		ret = irq_set_affinity_locked(&desc->irq_data, cpumask_of(cpu),
-					      false);
+									  false);
 	} else {
 		bi->prev_cpu = prev_cpu;
 		ret = -EINVAL;
 	}
 	raw_spin_unlock_irq(&desc->lock);
-
 	if (!ret) {
 		/* Update the old interrupt count using the new CPU */
 		bi->old_nr = *per_cpu_ptr(desc->kstat_irqs, cpu);
 		pr_debug("Moved IRQ%d (CPU%d -> CPU%d)\n",
-			 irq_desc_get_irq(desc), prev_cpu, cpu);
+				 irq_desc_get_irq(desc), prev_cpu, cpu);
 	}
 	return ret;
 }
@@ -174,24 +200,20 @@ static unsigned int scale_intrs(unsigned int intrs, int cpu)
 }
 
 /* Returns true if IRQ balancing should stop */
-static bool find_min_bd(const cpumask_t *mask, unsigned int max_intrs,
-			struct bal_domain **min_bd)
+static bool find_min_bd(const cpumask_t *mask, unsigned int max_intrs, struct bal_domain **min_bd)
 {
 	unsigned int intrs, min_intrs = UINT_MAX;
 	struct bal_domain *bd;
 	int cpu;
-
 	for_each_cpu(cpu, mask) {
 		bd = per_cpu_ptr(&balance_data, cpu);
 		intrs = scale_intrs(bd->intrs, bd->cpu);
 
 		/* Terminate when the formerly-max CPU isn't the max anymore */
-		if (intrs > max_intrs)
-			return true;
+		if (intrs > max_intrs) return true;
 
 		/* Don't consider moving IRQs to this CPU if it's excluded */
-		if (cpumask_test_cpu(cpu, &cpu_exclude_mask))
-			continue;
+		if (cpumask_test_cpu(cpu, &cpu_exclude_mask)) continue;
 
 		/* Find the CPU with the lowest relative number of interrupts */
 		if (intrs < min_intrs) {
@@ -201,8 +223,7 @@ static bool find_min_bd(const cpumask_t *mask, unsigned int max_intrs,
 	}
 
 	/* No CPUs available to move IRQs onto */
-	if (min_intrs == UINT_MAX)
-		return true;
+	if (min_intrs == UINT_MAX) return true;
 
 	/* Don't balance if IRQs are already balanced evenly enough */
 	return max_intrs - min_intrs < IRQ_SCALED_THRESH;
@@ -211,10 +232,11 @@ static bool find_min_bd(const cpumask_t *mask, unsigned int max_intrs,
 extern void balance_irqs(void)
 {
 	static cpumask_t cpus;
-	struct bal_domain *bd, *max_bd, *min_bd;
+	struct bal_domain *bd, *max_bd = NULL, *min_bd = NULL;
 	unsigned int intrs, max_intrs;
 	bool moved_irq = false;
 	struct bal_irq *bi;
+	cpumask_t balance_mask;
 	int cpu;
 
 	cpus_read_lock();
@@ -243,12 +265,30 @@ extern void balance_irqs(void)
 	}
 
 	list_for_each_entry_rcu(bi, &bal_irq_list, node) {
-		/* Consider this IRQ for balancing if it's movable */
-		if (!__irq_can_set_affinity(bi->desc))
-			continue;
+		bi->type = get_irq_type(bi->desc);
 
-		if (!update_irq_data(bi, &cpu))
-			continue;
+		if (bi->type == IRQ_TYPE_CRITICAL) {
+			const struct cpumask *crit_mask = cpumask_of(7);
+			if (!cpumask_equal(bi->desc->irq_common_data.affinity, crit_mask))
+				irq_force_affinity(irq_desc_get_irq(bi->desc), crit_mask);
+			continue; // Those IRQ's won't be balanced
+		}
+
+		if (bi->type == IRQ_TYPE_PERFORMANCE) {
+			static struct cpumask perf_mask;
+			cpumask_clear(&perf_mask);
+			cpumask_set_cpu(4, &perf_mask);
+			cpumask_set_cpu(5, &perf_mask);
+			cpumask_set_cpu(6, &perf_mask);
+			if (!cpumask_equal(bi->desc->irq_common_data.affinity, &perf_mask))
+				irq_force_affinity(irq_desc_get_irq(bi->desc), &perf_mask);
+			continue; // Those IRQ's won't be balanced
+		}
+
+		/* Consider this IRQ for balancing if it's movable */
+		if (!__irq_can_set_affinity(bi->desc)) continue;
+
+		if (!update_irq_data(bi, &cpu)) continue;
 
 		/* Ignore for this run if the IRQ isn't on the expected CPU */
 		if (cpu != bi->prev_cpu) {
@@ -265,6 +305,7 @@ extern void balance_irqs(void)
 	while (1) {
 		max_intrs = 0;
 		for_each_cpu(cpu, &cpus) {
+			if (cpu == 7) continue;
 			bd = per_cpu_ptr(&balance_data, cpu);
 			intrs = scale_intrs(bd->intrs, bd->cpu);
 			if (intrs > max_intrs) {
@@ -274,42 +315,37 @@ extern void balance_irqs(void)
 		}
 
 		/* No balancing to do if there aren't any movable IRQs */
-		if (unlikely(!max_intrs))
-			goto unlock;
+		if (unlikely(!max_intrs || !max_bd)) goto unlock;
 
 		/* Ensure the heaviest CPU has IRQs which can be moved away */
-		if (!list_empty(&max_bd->movable_irqs))
-			break;
+		if (!list_empty(&max_bd->movable_irqs)) break;
 
-try_next_heaviest:
+		try_next_heaviest:
 		/*
 		 * If the heaviest CPU has no movable IRQs then it can neither
 		 * receive IRQs nor give IRQs. Exclude it from balancing so the
 		 * remaining CPUs can be balanced, if there are any.
 		 */
-		if (cpumask_weight(&cpus) == 2)
-			goto unlock;
-
+		if (cpumask_weight(&cpus) == 2) goto unlock;
 		__cpumask_clear_cpu(max_bd->cpu, &cpus);
 	}
 
+	cpumask_copy(&balance_mask, &cpus);
+	cpumask_clear_cpu(7, &balance_mask);
+
 	/* Find the CPU with the lowest relative interrupt count */
-	if (find_min_bd(&cpus, max_intrs, &min_bd))
-		goto unlock;
+	if (find_min_bd(&balance_mask, max_intrs, &min_bd)) goto unlock;
 
 	/* Sort movable IRQs in descending order of number of new interrupts */
 	list_sort(NULL, &max_bd->movable_irqs, bal_irq_move_node_cmp);
 
 	/* Push IRQs away from the heaviest CPU to the least-heavy CPUs */
 	list_for_each_entry(bi, &max_bd->movable_irqs, move_node) {
-		/* Skip this IRQ if it would just overload the target CPU */
 		intrs = scale_intrs(min_bd->intrs + bi->delta_nr, min_bd->cpu);
-		if (intrs >= max_intrs)
-			continue;
+		if (intrs >= max_intrs) continue;
 
 		/* Try to migrate this IRQ, or skip it if migration fails */
-		if (move_irq_to_cpu(bi, min_bd->cpu))
-			continue;
+		if (move_irq_to_cpu(bi, min_bd->cpu)) continue;
 
 		/* Keep track of whether or not any IRQs are moved */
 		moved_irq = true;
@@ -325,17 +361,16 @@ try_next_heaviest:
 		max_intrs = scale_intrs(max_bd->intrs, max_bd->cpu);
 
 		/* Recheck for the least-heavy CPU since it may have changed */
-		if (find_min_bd(&cpus, max_intrs, &min_bd))
-			break;
+		if (find_min_bd(&balance_mask, max_intrs, &min_bd)) break;
 	}
 
 	/*
 	 * If the heaviest CPU has movable IRQs which can't actually be moved,
 	 * then ignore it and try balancing the next heaviest CPU.
 	 */
-	if (!moved_irq)
-		goto try_next_heaviest;
-unlock:
+	if (!moved_irq) goto try_next_heaviest;
+
+	unlock:
 	rcu_read_unlock();
 	cpus_read_unlock();
 
@@ -362,7 +397,6 @@ static void process_timeout(struct timer_list *t)
 static void sbalance_wait(long poll_jiffies)
 {
 	struct process_timer timer;
-
 	/*
 	 * Open code freezable_schedule_timeout_interruptible() in order to
 	 * make the timer deferrable, so that it doesn't kick CPUs out of idle.

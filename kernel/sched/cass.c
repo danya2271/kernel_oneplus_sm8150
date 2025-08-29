@@ -28,9 +28,6 @@
 struct cass_cpu_cand {
 	int cpu;
 	unsigned int exit_lat;
-	unsigned int highest_prio;
-	unsigned int rt_throttled;
-	unsigned int cannot_preempt;
 	unsigned long cap;
 	unsigned long cap_max;
 	unsigned long cap_no_therm;
@@ -84,7 +81,7 @@ void cass_cpu_util(struct cass_cpu_cand *c, int this_cpu, bool sync)
 static __always_inline
 bool cass_cpu_better(const struct cass_cpu_cand *a,
 		     const struct cass_cpu_cand *b, unsigned long p_util,
-		     int this_cpu, int prev_cpu, bool sync, bool rt)
+		     int this_cpu, int prev_cpu, bool sync)
 {
 #define cass_cmp(a, b) ({ res = (a) - (b); })
 #define cass_eq(a, b) ({ res = (a) == (b); })
@@ -105,20 +102,6 @@ bool cass_cpu_better(const struct cass_cpu_cand *a,
 		     fits_capacity(p_util, b->cap_max)))
 		goto done;
 
-        /* RT specific preferences */
-	if (rt) {
-	    /* Prefer CPU that is not marked by cannot_preempt */
-	    if (cass_cmp(b->cannot_preempt, a->cannot_preempt))
-		    goto done;
-
-	    /* Prefer CPU that does not have throttled runqueues */
-	    if (cass_cmp(b->rt_throttled, a->rt_throttled))
-		    goto done;
-
-	    /* Prefer CPUs with lower priority top tasks */
-	    if (cass_cmp(a->highest_prio, b->highest_prio))
-		    goto done;
-	}
 
 	/* Prefer the CPU with lower relative utilization */
 	if (cass_cmp(b->util, a->util))
@@ -187,14 +170,6 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		struct cass_cpu_cand *curr = &cands[cidx];
 		struct cpuidle_state *idle_state;
 		struct rq *rq = cpu_rq(cpu);
-
-		/* Bias RT placement */
-		if (rt) {
-    		    curr->highest_prio = rq->rt.highest_prio.curr;
-    		    curr->rt_throttled = rt_rq_throttled(&rq->rt) ? 1 : 0;
-    		    /* If @p cannot preempt the top RT task, mark that. */
-    		    curr->cannot_preempt = (p->prio > rq->rt.highest_prio.curr) ? 1 : 0;
- 		}
 
 		/* Get the original, maximum _possible_ capacity of this CPU */
 		curr->cap_orig = arch_scale_cpu_capacity(cpu);
@@ -289,7 +264,7 @@ static int cass_best_cpu(struct task_struct *p, int prev_cpu, bool sync, bool rt
 		 */
 		if (best == curr ||
 		    cass_cpu_better(curr, best, p_util, this_cpu, prev_cpu,
-				    sync, rt)) {
+				    sync)) {
 			best = curr;
 			cidx ^= 1;
 		}

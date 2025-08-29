@@ -105,11 +105,6 @@ enum sched_tunable_scaling sysctl_sched_tunable_scaling = SCHED_TUNABLESCALING_L
 unsigned int sysctl_sched_base_slice			= 1000000ULL;
 static unsigned int normalized_sysctl_sched_base_slice	= 1000000ULL;
 
-/*
- * To enable/disable energy aware feature.
- */
-unsigned int __read_mostly sysctl_sched_energy_aware = 1;
-
 const_debug unsigned int sysctl_sched_migration_cost	= 500000UL;
 DEFINE_PER_CPU_READ_MOSTLY(int, sched_load_boost);
 
@@ -6124,15 +6119,6 @@ unsigned long capacity_curr_of(int cpu)
 }
 
 /*
- * Externally visible function. Let's keep the one above
- * so that the check is inlined/optimized in the sched paths.
- */
-bool sched_is_energy_aware(void)
-{
-	return energy_aware();
-}
-
-/*
  * __cpu_norm_util() returns the cpu util relative to a specific capacity,
  * i.e. it's busy ratio, in the range [0..SCHED_CAPACITY_SCALE] which is useful
  * for energy calculations. Using the scale-invariant util returned by
@@ -6311,6 +6297,7 @@ struct energy_env {
 static unsigned long cpu_util_without(int cpu, struct task_struct *p)
 {
 	unsigned int util;
+	struct cfs_rq *cfs_rq;
 
 #ifdef CONFIG_SCHED_WALT
 	/*
@@ -6331,7 +6318,6 @@ static unsigned long cpu_util_without(int cpu, struct task_struct *p)
 #ifdef CONFIG_SCHED_WALT
 	util = max_t(long, cpu_util(cpu) - task_util(p), 0);
 #else
-	struct cfs_rq *cfs_rq;
 
 	cfs_rq = &cpu_rq(cpu)->cfs;
 	util = READ_ONCE(cfs_rq->avg.util_avg);
@@ -8571,7 +8557,6 @@ static int find_energy_efficient_cpu(struct sched_domain *sd,
 	struct find_best_target_env fbt_env;
 	bool need_idle = wake_to_idle(p) || uclamp_latency_sensitive(p);
 	int placement_boost = task_boost_policy(p);
-	u64 start_t = 0;
 	int next_cpu = -1, backup_cpu = -1;
 #ifdef CONFIG_UCLAMP_TASK
 	int boosted = (uclamp_boosted(p) > 0 || per_task_boost(p) > 0);
@@ -8733,52 +8718,7 @@ out:
 static inline int wake_energy(struct task_struct *p, int prev_cpu,
 			      int sd_flag, int wake_flags)
 {
-	struct sched_domain *sd = NULL;
-	int sync = wake_flags & WF_SYNC;
-
-	sd = rcu_dereference_sched(cpu_rq(prev_cpu)->sd);
-
-	/*
-	 * Check all definite no-energy-awareness conditions
-	 */
-	if (!sd)
-		return false;
-
-	if (!energy_aware())
-		return false;
-#ifdef CONFIG_SCHED_WALT
-	if (sd_overutilized(sd))
-		return false;
-#endif
-
-	/*
-	 * we cannot do energy-aware wakeup placement sensibly
-	 * for tasks with 0 utilization, so let them be placed
-	 * according to the normal strategy.
-	 * However if fbt is in use we may still benefit from
-	 * the heuristics we use there in selecting candidate
-	 * CPUs.
-	 */
-	if (unlikely(!sched_feat(FIND_BEST_TARGET) && !task_util_est(p)))
-		return false;
-
-	if(!sched_feat(EAS_PREFER_IDLE)){
-		/*
-		 * Force prefer-idle tasks into the slow path, this may not happen
-		 * if none of the sd flags matched.
-		 */
-#ifdef CONFIG_SCHED_TUNE
-		if (schedtune_prefer_idle(p) > 0
-				&& !sync)
-#elif defined CONFIG_UCLAMP_TASK
-		if (uclamp_latency_sensitive(p) > 0
-				&& !sync)
-#else
-		if (!sync)
-#endif
-			return false;
-	}
-	return true;
+	return false;
 }
 
 static inline bool nohz_kick_needed(struct rq *rq, bool only_update);
@@ -9546,31 +9486,6 @@ int can_migrate_task(struct task_struct *p, struct lb_env *env)
 	/* Record that we found atleast one task that could run on dst_cpu */
 	env->flags &= ~LBF_ALL_PINNED;
 
-#ifdef CONFIG_SCHED_WALT
-	if (energy_aware() && !sd_overutilized(env->sd) &&
-	    env->idle == CPU_NEWLY_IDLE &&
-	    !task_in_related_thread_group(p)) {
-		long util_cum_dst, util_cum_src;
-		unsigned long demand;
-
-		demand = task_util(p);
-		util_cum_dst = cpu_util_cum(env->dst_cpu, 0) + demand;
-		util_cum_src = cpu_util_cum(env->src_cpu, 0) - demand;
-
-		if (util_cum_dst > util_cum_src)
-			return 0;
-	}
-
-	if (env->flags & LBF_IGNORE_PREFERRED_CLUSTER_TASKS &&
-			 !preferred_cluster(cpu_rq(env->dst_cpu)->cluster, p))
-		return 0;
-
-	/* Don't detach task if it doesn't fit on the destination */
-	if (env->flags & LBF_IGNORE_BIG_TASKS &&
-		!task_fits_max(p, env->dst_cpu))
-		return 0;
-#endif
-
 	if (task_running(env->src_rq, p)) {
 		schedstat_inc(p->se.statistics.nr_failed_migrations_running);
 		return 0;
@@ -9885,10 +9800,10 @@ static void update_blocked_averages(int cpu)
 	struct rq *rq = cpu_rq(cpu);
 	struct cfs_rq *cfs_rq;
 	struct rq_flags rf;
+	unsigned long thermal_pressure;
 
 	rq_lock_irqsave(rq, &rf);
 	update_rq_clock(rq);
-	unsigned long thermal_pressure;
 
 	/*
 	 * Iterates the task_group tree in a bottom up fashion, see
@@ -10598,7 +10513,6 @@ static inline void update_sd_lb_stats(struct lb_env *env, struct sd_lb_stats *sd
 	struct sched_group *sg = env->sd->groups;
 	struct sg_lb_stats *local = &sds->local_stat;
 	struct sg_lb_stats tmp_sgs;
-	struct root_domain *rd = env->dst_rq->rd;
 	int load_idx;
 	bool overload = false, overutilized = false, misfit_task = false;
 	bool prefer_sibling = child && child->flags & SD_PREFER_SIBLING;
@@ -11057,35 +10971,6 @@ static struct sched_group *find_busiest_group(struct lb_env *env)
 	 * this level.
 	 */
 	update_sd_lb_stats(env, &sds);
-
-#ifdef CONFIG_SCHED_WALT
-	if (energy_aware() && !sd_overutilized(env->sd)) {
-#else
-	if (energy_aware()) {
-#endif
-
-		int cpu_local, cpu_busiest;
-		unsigned long capacity_local, capacity_busiest;
-
-		if (env->idle != CPU_NEWLY_IDLE)
-			goto out_balanced;
-
-		if (!sds.local || !sds.busiest)
-			goto out_balanced;
-
-		cpu_local = group_first_cpu(sds.local);
-		cpu_busiest = group_first_cpu(sds.busiest);
-
-		/* TODO: don't assume same cap cpus are in same domain */
-		capacity_local = capacity_orig_of(cpu_local);
-		capacity_busiest = capacity_orig_of(cpu_busiest);
-		if (capacity_local > capacity_busiest) {
-			goto out_balanced;
-		} else if (capacity_local == capacity_busiest) {
-			if (cpu_rq(cpu_busiest)->nr_running < 2)
-				goto out_balanced;
-		}
-	}
 
 	local = &sds.local_stat;
 	busiest = &sds.busiest_stat;
@@ -11771,26 +11656,6 @@ get_sd_balance_interval(struct sched_domain *sd, int cpu_busy)
 
 	interval = clamp(interval, 1UL, max_load_balance_interval);
 
-	/*
-	 * check if sched domain is marked as overutilized
-	 * we ought to only do this on systems which have SD_ASYMCAPACITY
-	 * but we want to do it for all sched domains in those systems
-	 * So for now, just check if overutilized as a proxy.
-	 */
-	/*
-	 * If we are overutilized and we have a misfit task, then
-	 * we want to balance as soon as practically possible, so
-	 * we return an interval of zero.
-	 */
-#ifdef CONFIG_SCHED_WALT
-	if (energy_aware() && sd_overutilized(sd)) {
-		/* we know the root is overutilized, let's check for a misfit task */
-		for_each_cpu(cpu, sched_domain_span(sd)) {
-			if (cpu_rq(cpu)->misfit_task_load)
-				return 1;
-		}
-	}
-#endif
 	return interval;
 }
 
@@ -12130,8 +11995,7 @@ static inline int find_new_ilb(void)
 	rcu_read_unlock();
 
 	if (sd && (ilb >= nr_cpu_ids || !idle_cpu(ilb))) {
-		if (!energy_aware() ||
-				(capacity_orig_of(cpu) ==
+		if ((capacity_orig_of(cpu) ==
 				cpu_rq(cpu)->rd->max_cpu_capacity.val ||
 				cpu_overutilized(cpu))) {
 			cpumask_andnot(&cpumask, nohz.idle_cpus_mask,
@@ -12320,10 +12184,6 @@ static void rebalance_domains(struct rq *rq, enum cpu_idle_type idle)
 			need_decay = 1;
 		}
 		max_cost += sd->max_newidle_lb_cost;
-#ifdef CONFIG_SCHED_WALT
-		if (energy_aware() && !sd_overutilized(sd))
-			continue;
-#endif
 
 		if (!(sd->flags & SD_LOAD_BALANCE)) {
 			update_group_capacity(sd, cpu);
@@ -12552,15 +12412,12 @@ static inline bool nohz_kick_needed(struct rq *rq, bool only_update)
 	 * at least 2 tasks and cpu is overutilized
 	 */
 	if (rq->nr_running >= 2 &&
-	    (!energy_aware() || cpu_overutilized(cpu)))
+	    (cpu_overutilized(cpu)))
 		return true;
-
-	if (energy_aware())
-		return false;
 
 	rcu_read_lock();
 	sds = rcu_dereference(per_cpu(sd_llc_shared, cpu));
-	if (sds && !energy_aware()) {
+	if (sds) {
 		/*
 		 * XXX: write a coherent comment on why we do this.
 		 * See also: http://lkml.kernel.org/r/20111202010832.602203411@sbsiddha-desk.sc.intel.com

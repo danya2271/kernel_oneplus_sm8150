@@ -230,7 +230,6 @@ static void sugov_update_commit(struct sugov_policy *sg_policy, u64 time,
 				unsigned int next_freq)
 {
 	struct cpufreq_policy *policy = sg_policy->policy;
-	unsigned int cpu;
 
 	if (sg_policy->next_freq == next_freq)
 		return;
@@ -314,7 +313,6 @@ static void sugov_get_util(unsigned long *util, unsigned long *max, int cpu)
 {
 	struct rq *rq = cpu_rq(cpu);
 	unsigned long cfs_max;
-	struct sugov_cpu *loadcpu = &per_cpu(sugov_cpu, cpu);
 
 	cfs_max = arch_scale_cpu_capacity(cpu);
 
@@ -836,7 +834,6 @@ static int sugov_kthread_create(struct sugov_policy *sg_policy)
 {
 	struct task_struct *thread;
 	struct cpufreq_policy *policy = sg_policy->policy;
-	int ret;
 
 	/* kthread only required for slow path */
 	if (policy->fast_switch_enabled)

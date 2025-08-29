@@ -2678,8 +2678,6 @@ static inline void nohz_balance_exit_idle(unsigned int cpu) { }
 
 #ifdef CONFIG_SMP
 
-extern void init_energy_aware_data(int cpu);
-
 static inline
 void __dl_update(struct dl_bw *dl_b, s64 bw)
 {
@@ -3683,10 +3681,6 @@ static inline void note_task_waking(struct task_struct *p, u64 wallclock) { }
 static inline void walt_update_min_max_capacity(void) { }
 #endif	/* CONFIG_SCHED_WALT */
 
-static inline bool energy_aware(void)
-{
-	return sched_feat(ENERGY_AWARE);
-}
 
 struct sched_avg_stats {
 	int nr;

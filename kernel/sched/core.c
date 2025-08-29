@@ -382,30 +382,6 @@ static bool set_nr_and_not_polling(struct task_struct *p)
 	return !(fetch_or(&ti->flags, _TIF_NEED_RESCHED) & _TIF_POLLING_NRFLAG);
 }
 
-/*
- * Atomically set TIF_NEED_RESCHED if TIF_POLLING_NRFLAG is set.
- *
- * If this returns true, then the idle task promises to call
- * sched_ttwu_pending() and reschedule soon.
- */
-static bool set_nr_if_polling(struct task_struct *p)
-{
-	struct thread_info *ti = task_thread_info(p);
-	typeof(ti->flags) old, val = READ_ONCE(ti->flags);
-
-	for (;;) {
-		if (!(val & _TIF_POLLING_NRFLAG))
-			return false;
-		if (val & _TIF_NEED_RESCHED)
-			return true;
-		old = cmpxchg(&ti->flags, val, val | _TIF_NEED_RESCHED);
-		if (old == val)
-			break;
-		val = old;
-	}
-	return true;
-}
-
 #else
 static bool set_nr_and_not_polling(struct task_struct *p)
 {
@@ -413,12 +389,6 @@ static bool set_nr_and_not_polling(struct task_struct *p)
 	return true;
 }
 
-#ifdef CONFIG_SMP
-static bool set_nr_if_polling(struct task_struct *p)
-{
-	return false;
-}
-#endif
 #endif
 
 void wake_q_add(struct wake_q_head *head, struct task_struct *task)
@@ -980,9 +950,6 @@ extern int kp_active_mode(void);
 
 static inline void uclamp_boost_write(struct task_struct *p) {
 	struct cgroup_subsys_state *css = task_css(p, cpu_cgrp_id);
-	int min_value = 0;
-	int max_value = 0;
-	int latency_sensitive = 0;
 
 	//top-app min clamp input boost
 	if (strcmp(css->cgroup->kn->name, "top-app") == 0) {
@@ -4127,7 +4094,6 @@ void scheduler_tick(void)
 	u32 old_load;
 	struct related_thread_group *grp;
 #endif
-	unsigned int flag = 0;
 	unsigned long thermal_pressure;
 
 	sched_clock_tick();

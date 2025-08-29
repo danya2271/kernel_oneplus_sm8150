@@ -1201,16 +1201,6 @@ config SCHED_TUNE_DUMMY
 	help
 	  Create dummy SCHEDTUNE nodes.
 
-config DEFAULT_USE_ENERGY_AWARE
-	bool "Default to enabling the Energy Aware Scheduler feature"
-	default n
-	help
-	  This option defaults the ENERGY_AWARE scheduling feature to true,
-	  as without SCHED_DEBUG set this feature can't be enabled or disabled
-	  via sysctl.
-
-	  Say N if unsure.
-
 config UCLAMP_ASSIST
 	bool "UClamp configuration helper"
 	depends on ANDROID && UCLAMP_TASK && UCLAMP_TASK_GROUP

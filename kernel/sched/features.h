@@ -36,7 +36,7 @@
 
 #define SCHED_FEAT_HRTICK 0
 #define SCHED_FEAT_DOUBLE_TICK 0
-#define SCHED_FEAT_LB_BIAS 0
+#define SCHED_FEAT_LB_BIAS 1
 
 /*
  * Decrement CPU capacity based on time not spent running tasks
@@ -91,16 +91,6 @@
 #define SCHED_FEAT_UTIL_EST 1
 
 /*
- * Energy aware scheduling. Use platform energy model to guide scheduling
- * decisions optimizing for energy efficiency.
- */
-#ifdef CONFIG_DEFAULT_USE_ENERGY_AWARE
-#define SCHED_FEAT_ENERGY_AWARE 1
-#else
-#define SCHED_FEAT_ENERGY_AWARE 0
-#endif
-
-/*
  * Energy aware scheduling algorithm choices:
  * EAS_PREFER_IDLE
  *   Direct tasks in a schedtune.prefer_idle=1 group through
@@ -114,9 +104,9 @@
  *   ON: If the target CPU saves any energy, use that.
  *   OFF: Use whichever of target or backup saves most.
  */
-#define SCHED_FEAT_EAS_PREFER_IDLE 1
+#define SCHED_FEAT_EAS_PREFER_IDLE 0
 #define SCHED_FEAT_FIND_BEST_TARGET 1
-#define SCHED_FEAT_FBT_STRICT_ORDER 0
+#define SCHED_FEAT_FBT_STRICT_ORDER 1
 
 /*
  * Apply schedtune boost hold to tasks of all sched classes.

@@ -764,9 +764,9 @@ KBUILD_CFLAGS   += -ffp-contract=fast
 ifeq ($(shell test $(CONFIG_CLANG_VERSION) -gt 180000; echo $$?),0)
 KBUILD_CFLAGS   += -mllvm -regalloc-enable-advisor=release
 KBUILD_CFLAGS   += -mllvm -enable-machine-outliner
-KBUILD_LDFLAGS  += -mllvm -regalloc-enable-advisor=release
-KBUILD_LDFLAGS  += -mllvm -enable-ml-inliner=release
-KBUILD_LDFLAGS  += -mllvm -enable-machine-outliner
+#KBUILD_LDFLAGS  += -mllvm -regalloc-enable-advisor=release
+#KBUILD_LDFLAGS  += -mllvm -enable-ml-inliner=release
+#KBUILD_LDFLAGS  += -mllvm -enable-machine-outliner
 endif
 #Enable hot cold split optimization
 KBUILD_CFLAGS   += -mllvm -hot-cold-split=true
@@ -919,8 +919,6 @@ endif
 
 ifeq ($(ld-name),lld)
 LDFLAGS += -O3
-LDFLAGS += -mllvm -regalloc-enable-advisor=release
-LDFLAGS += -mllvm -enable-ml-inliner=release
 endif
 
 KBUILD_CFLAGS += $(call cc-disable-warning, unused-const-variable)

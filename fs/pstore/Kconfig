@@ -39,6 +39,11 @@ config PSTORE_LZ4_COMPRESS
         select LZ4_DECOMPRESS
         help
           This option enables LZ4 compression algorithm support.
+
+config PSTORE_NONE_COMPRESS
+        bool "NONE"
+        help
+          This option disables compression support.
 endchoice
 
 config PSTORE_CONSOLE

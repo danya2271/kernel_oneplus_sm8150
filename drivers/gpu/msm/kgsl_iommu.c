@@ -2803,16 +2803,10 @@ static int _kgsl_iommu_probe(struct kgsl_device *device,
 			mmu->features |= kgsl_iommu_features[i].bit;
 	}
 
-	/*
-	 * Try to preserve the SMMU regulator if HW can support
-	 * unmap fast path.
-	 */
-	if (of_property_read_bool(node, "qcom,unmap_fast")) {
-		for (i = 0; i < KGSL_MAX_REGULATORS; i++) {
-			if (!strcmp(pwr->regulators[i].name, "vddcx")) {
-				iommu->vddcx_regulator =
-					pwr->regulators[i].reg;
-			}
+	for (i = 0; i < KGSL_MAX_REGULATORS; i++) {
+		if (!strcmp(pwr->regulators[i].name, "vddcx")) {
+			iommu->vddcx_regulator =
+				pwr->regulators[i].reg;
 		}
 	}
 

@@ -24,6 +24,7 @@
 #include <soc/qcom/scm.h>
 #include <soc/qcom/secure_buffer.h>
 #include <linux/compat.h>
+#include <linux/regulator/consumer.h>
 
 #include "kgsl.h"
 #include "kgsl_device.h"
@@ -2819,6 +2820,14 @@ static int _kgsl_iommu_probe(struct kgsl_device *device,
 	if (of_property_read_u32(node, "qcom,micro-mmu-control",
 		&iommu->micro_mmu_ctrl))
 		iommu->micro_mmu_ctrl = UINT_MAX;
+
+
+	for (i = 0; i < KGSL_MAX_REGULATORS; i++) {
+		if (!strcmp(pwr->regulators[i].name, "vddcx")) {
+			iommu->vddcx_regulator =
+				pwr->regulators[i].reg;
+		}
+	}
 
 	if (of_property_read_u32(node, "qcom,secure_align_mask",
 		&mmu->secure_align_mask))

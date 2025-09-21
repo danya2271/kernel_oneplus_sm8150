@@ -148,6 +148,7 @@ struct kgsl_iommu {
 	unsigned int version;
 	struct kgsl_protected_registers protect;
 	u32 pagefault_suppression_count;
+	struct regulator *vddcx_regulator;
 };
 
 /*

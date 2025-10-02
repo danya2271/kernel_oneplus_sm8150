@@ -2220,8 +2220,6 @@ static void complete_crtc_signaling(struct drm_device *dev,
 	kfree(fence_state);
 }
 
-extern int kp_active_mode(void);
-
 static int __drm_mode_atomic_ioctl(struct drm_device *dev, void *data,
 				   struct drm_file *file_priv)
 {
@@ -2270,13 +2268,8 @@ static int __drm_mode_atomic_ioctl(struct drm_device *dev, void *data,
 		//5000ms covers long scrolls after input boosting is no longer used
 		if (time_before(jiffies, last_input_time + msecs_to_jiffies(7000))) {
 			cpu_input_boost_kick();
-			if (kp_active_mode() == 3) {
-				devfreq_boost_kick_max(DEVFREQ_MSM_CPUBW, 58);
-				devfreq_boost_kick_max(DEVFREQ_MSM_LLCCBW, 58);
-			} else {
-				devfreq_boost_kick(DEVFREQ_MSM_CPUBW);
-				devfreq_boost_kick(DEVFREQ_MSM_LLCCBW);
-			}
+			devfreq_boost_kick_max(DEVFREQ_MSM_CPUBW, 58);
+			devfreq_boost_kick_max(DEVFREQ_MSM_LLCCBW, 58);
 		}
 	}
 #endif

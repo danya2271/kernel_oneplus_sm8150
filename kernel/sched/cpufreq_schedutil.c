@@ -26,7 +26,6 @@ struct sugov_tunables {
 	unsigned int		down_rate_limit_us;
 	unsigned int hispeed_load;
 	unsigned int hispeed_freq;
-	bool pl;
 };
 
 struct sugov_policy {
@@ -154,19 +153,6 @@ static inline bool use_pelt(void)
 	return (!sysctl_sched_use_walt_cpu_util || walt_disabled);
 #else
 	return true;
-#endif
-}
-
-extern int kp_active_mode(void);
-static inline bool conservative_pl(void)
-{
-#ifdef CONFIG_SCHED_WALT
-	if (kp_active_mode() == 1)
-		return 1;
-	else
-		return sysctl_sched_conservative_pl;
-#else
-	return false;
 #endif
 }
 
@@ -450,7 +436,6 @@ static void sugov_walt_adjust(struct sugov_cpu *sg_cpu, unsigned long *util,
 	unsigned long nl = sg_cpu->walt_load.nl;
 	unsigned long cpu_util = sg_cpu->util;
 	bool is_hiload;
-	unsigned long pl = sg_cpu->walt_load.pl;
 
 	if (unlikely(!sysctl_sched_use_walt_cpu_util))
 		return;
@@ -464,11 +449,6 @@ static void sugov_walt_adjust(struct sugov_cpu *sg_cpu, unsigned long *util,
 
 	if (is_hiload && nl >= mult_frac(cpu_util, NL_RATIO, 100))
 		*util = *max;
-
-	if (conservative_pl())
-		pl = mult_frac(pl, TARGET_LOAD, 100);
-
-	*util = max(*util, pl);
 }
 
 static void sugov_update_single(struct update_util_data *hook, u64 time,
@@ -481,7 +461,7 @@ static void sugov_update_single(struct update_util_data *hook, u64 time,
 	unsigned int next_f;
 	bool busy;
 
-	if (flags & SCHED_CPUFREQ_PL)
+	if (flags)
 		return;
 
 	flags &= ~SCHED_CPUFREQ_RT_DL;
@@ -598,7 +578,7 @@ static void sugov_update_shared(struct update_util_data *hook, u64 time,
 	unsigned long util, max, hs_util;
 	unsigned int next_f;
 
-	if (flags & SCHED_CPUFREQ_PL)
+	if (flags)
 		return;
 
 	sugov_get_util(&util, &max, sg_cpu->cpu);
@@ -812,36 +792,16 @@ static ssize_t hispeed_freq_store(struct gov_attr_set *attr_set,
 	return count;
 }
 
-static ssize_t pl_show(struct gov_attr_set *attr_set, char *buf)
-{
-	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
-
-	return scnprintf(buf, PAGE_SIZE, "%u\n", tunables->pl);
-}
-
-static ssize_t pl_store(struct gov_attr_set *attr_set, const char *buf,
-				   size_t count)
-{
-	struct sugov_tunables *tunables = to_sugov_tunables(attr_set);
-
-	if (kstrtobool(buf, &tunables->pl))
-		return -EINVAL;
-
-	return count;
-}
-
 static struct governor_attr up_rate_limit_us = __ATTR_RW(up_rate_limit_us);
 static struct governor_attr down_rate_limit_us = __ATTR_RW(down_rate_limit_us);
 static struct governor_attr hispeed_load = __ATTR_RW(hispeed_load);
 static struct governor_attr hispeed_freq = __ATTR_RW(hispeed_freq);
-static struct governor_attr pl = __ATTR_RW(pl);
 
 static struct attribute *sugov_attributes[] = {
 	&up_rate_limit_us.attr,
 	&down_rate_limit_us.attr,
 	&hispeed_load.attr,
 	&hispeed_freq.attr,
-	&pl.attr,
 	NULL
 };
 
@@ -949,7 +909,6 @@ static void sugov_tunables_save(struct cpufreq_policy *policy,
 			per_cpu(cached_tunables, cpu) = cached;
 	}
 
-	cached->pl = tunables->pl;
 	cached->hispeed_load = tunables->hispeed_load;
 	cached->hispeed_freq = tunables->hispeed_freq;
 	cached->up_rate_limit_us = tunables->up_rate_limit_us;
@@ -973,7 +932,6 @@ static void sugov_tunables_restore(struct cpufreq_policy *policy)
 	if (!cached)
 		return;
 
-	tunables->pl = cached->pl;
 	tunables->hispeed_load = cached->hispeed_load;
 	tunables->hispeed_freq = cached->hispeed_freq;
 	tunables->up_rate_limit_us = cached->up_rate_limit_us;

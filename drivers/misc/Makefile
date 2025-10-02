@@ -95,4 +95,3 @@ obj-$(CONFIG_BOOTLOADER_LOG)	+= bootloader_log.o
 obj-$(CONFIG_AUDIO_SENSOR) += audio_sensor.o
 obj-$(CONFIG_OP_PASSTHROUGH_HACK) += passthroughhack.o
 obj-$(CONFIG_FORCE_FAST_CHARGE) += fastchg.o
-obj-$(CONFIG_KPROFILES) += kprofiles/

@@ -60,12 +60,8 @@ static struct df_boost_drv df_boost_drv_g __read_mostly = {
 		       CONFIG_DEVFREQ_MSM_LLCCBW_BOOST_FREQ)
 };
 
-extern int kp_active_mode(void);
 static void __devfreq_boost_kick(struct boost_dev *b)
 {
-	if (kp_active_mode() == 1)
-		return;
-
         if (!READ_ONCE(b->df) || !test_bit(SCREEN_ON, &b->state))
 		return;
 
@@ -87,9 +83,6 @@ static void __devfreq_boost_kick_max(struct boost_dev *b,
 {
 	unsigned long boost_jiffies = msecs_to_jiffies(duration_ms);
 	unsigned long curr_expires, new_expires;
-
-	if (kp_active_mode() == 1)
-		return;
 
 	if (!READ_ONCE(b->df) || !test_bit(SCREEN_ON, &b->state))
 		return;

@@ -3129,16 +3129,11 @@ static struct notifier_block kp_mode_notifier = {
 
 static int __init walt_kp_init(void)
 {
-	// Register the driver module as a client of the Kprofiles event notifier
-	kp_notifier_register_client(&kp_mode_notifier);
-
 	return 0;
 }
 
 static void __exit walt_kp_exit(void)
 {
-	// Unregister the driver module as a client of the Kprofiles event notifier
-	kp_notifier_unregister_client(&kp_mode_notifier);
 }
 
 /*

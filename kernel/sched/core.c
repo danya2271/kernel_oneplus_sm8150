@@ -946,16 +946,6 @@ static void uclamp_sync_util_min_rt_default(void)
 	rcu_read_unlock();
 }
 
-static inline void uclamp_boost_write(struct task_struct *p) {
-	struct cgroup_subsys_state *css = task_css(p, cpu_cgrp_id);
-
-	//top-app min clamp input boost
-	if (strcmp(css->cgroup->kn->name, "top-app") == 0) {
-			task_group(p)->uclamp[UCLAMP_MIN].value = 307;
-			task_group(p)->latency_sensitive = 0;
-	}
-}
-
 static inline struct uclamp_se
 uclamp_tg_restrict(struct task_struct *p, enum uclamp_id clamp_id)
 {
@@ -973,7 +963,6 @@ uclamp_tg_restrict(struct task_struct *p, enum uclamp_id clamp_id)
 	if (task_group(p) == &root_task_group)
 		return uc_req;
 
-	uclamp_boost_write(p);
 	tg_min = task_group(p)->uclamp[UCLAMP_MIN].value;
 	tg_max = task_group(p)->uclamp[UCLAMP_MAX].value;
 	value = uc_req.value;

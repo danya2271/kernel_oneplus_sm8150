@@ -27,6 +27,7 @@
 #include <drm/drm_flip_work.h>
 #include <linux/clk/qcom.h>
 #include <linux/sde_rsc.h>
+#include <drm/msm_refresh_rate.h>
 
 #include "sde_kms.h"
 #include "sde_hw_lm.h"
@@ -203,6 +204,7 @@ static void sde_crtc_calc_fps(struct sde_crtc *sde_crtc)
 				(unsigned int)fps%10);
 		sde_crtc->fps_info.last_sampled_time_us = current_time_us;
 		sde_crtc->fps_info.frame_count = 0;
+		msm_panel_fps = fps/10;
 	}
 
 	if (!sde_crtc->fps_info.time_buf)

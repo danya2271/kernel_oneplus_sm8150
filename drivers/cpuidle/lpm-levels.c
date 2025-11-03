@@ -54,6 +54,7 @@
 #endif /* CONFIG_COMMON_CLK */
 #define CREATE_TRACE_POINTS
 #include <trace/events/trace_msm_low_power.h>
+#include <drm/msm_refresh_rate.h>
 
 #define SCLK_HZ (32768)
 #define PSCI_POWER_STATE(reset) (reset << 30)
@@ -971,6 +972,23 @@ static void clear_cl_predict_history(void)
 	}
 }
 
+static int cluster_select_deepest(struct lpm_cluster *cluster)
+{
+	int i;
+	for (i = cluster->nlevels - 1; i >= 0; i--) {
+		struct lpm_cluster_level *level = &cluster->levels[i];
+		if (level->notify_rpm) {
+			if (!(sys_pm_ops && sys_pm_ops->sleep_allowed))
+				continue;
+			if (!sys_pm_ops->sleep_allowed())
+				continue;
+		}
+		break;
+	}
+
+	return i;
+}
+
 static int cluster_select(struct lpm_cluster *cluster, bool from_idle,
 							int *ispred)
 {
@@ -981,9 +999,21 @@ static int cluster_select(struct lpm_cluster *cluster, bool from_idle,
 	uint32_t sleep_us;
 	uint32_t cpupred_us = 0, pred_us = 0;
 	int pred_mode = 0, predicted = 0;
+	static unsigned long low_fps_start_jiffies = 0;
+	const unsigned long required_jiffies = msecs_to_jiffies(100);
 
 	if (!cluster)
 		return -EINVAL;
+
+	if (msm_panel_fps <= 15) {
+		if (low_fps_start_jiffies == 0) {
+			low_fps_start_jiffies = jiffies;
+		} else if (time_after(jiffies, low_fps_start_jiffies + required_jiffies)) {
+			return cluster_select_deepest(cluster);
+		}
+	} else {
+		low_fps_start_jiffies = 0;
+	}
 
 	sleep_us = (uint32_t)get_cluster_sleep_time(cluster,
 						from_idle, &cpupred_us);

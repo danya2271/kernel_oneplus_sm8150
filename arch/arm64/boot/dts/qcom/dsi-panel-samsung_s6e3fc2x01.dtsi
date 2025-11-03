@@ -122,7 +122,7 @@
 				qcom,mdss-dsi-panel-clockrate = <1037000000>;//	518.5MHZ
 				qcom,mdss-dsi-on-command = [
 					39 01 00 00 00 00 03 9F A5 A5
-					05 01 00 00 05 00 02 11 00
+					05 01 00 00 01 00 02 11 00
 					39 01 00 00 00 00 03 9F 5A 5A
 					/*FD setting*/
 					39 01 00 00 00 00 03 F0 5A 5A
